@@ -46,7 +46,7 @@ class ReviewList(generics.ListAPIView):
     # it is need to be overwritten because by default we get all reviews instead of reviews which belong to certain movie
     #queryset = Review.objects.all() 
     serializer_class = ReviewSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         pk = self.kwargs['pk']

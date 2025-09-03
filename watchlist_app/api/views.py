@@ -1,11 +1,17 @@
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, Throttled
+from rest_framework.throttling import UserRateThrottle, AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
 from rest_framework import viewsets
+from .throttling import  ReviewListThrottle
+from .paginations import WatchListPagination, WatchListLOPagination, WatchListCPagination
+from rest_framework import filters
+
+from django_filters.rest_framework import DjangoFilterBackend
 
 from watchlist_app.api.permissions import IsAdminOrReadOnly, IsReviewUserOrAdminOrReadOnly
 from watchlist_app.models import WatchList, StreamPlatform, Review
@@ -14,9 +20,21 @@ from watchlist_app.api.serializers import (WatchListSerializer, StreamPlatformSe
 
 
 
+
+class UserReview(generics.ListAPIView):
+    serializer_class = ReviewSerializer
+
+    def get_queryset(self):
+        username = self.request.query_params.get('username', None)
+        return Review.objects.filter(review_user__username=username)
+    
+
 class ReviewCreate(generics.CreateAPIView):
      serializer_class = ReviewSerializer
      permission_classes = [IsAuthenticated]
+     throttle_classes = [ScopedRateThrottle]
+     throttle_scope = 'review-create'
+
 
      def get_queryset(self):
          return Review.objects.all()
@@ -41,14 +59,29 @@ class ReviewCreate(generics.CreateAPIView):
 
          serializer.save(watchlist=movie, review_user=review_user)
 
+
+     def throttled(self, request, wait):
+         msg = 'You can add only 1 comment per day.'
+
+         raise Throttled(detail=msg)
+
 class ReviewList(generics.ListAPIView):
     # get_queryset needs to be overwritten because by default we get all reviews instead of reviews which belong to certain movie
     serializer_class = ReviewSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ReviewListThrottle]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['review_user__username', 'active']    
+    
 
     def get_queryset(self):
         pk = self.kwargs['pk']
         return Review.objects.filter(watchlist=pk)
+    
+    def throttled(self, request, wait):
+        msg = 'Too many request, see you tomorrow :)'
+
+        raise Throttled(detail=msg)
        
 
 class ReviewDetail(generics.RetrieveUpdateDestroyAPIView):
@@ -61,28 +94,34 @@ class StreamPlatformVS(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly]
     queryset = StreamPlatform.objects.all()
     serializer_class = StreamPlatformSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name']
 
 
-class WatchListAV(APIView):
+class WatchListGV(generics.ListCreateAPIView):
+    queryset = WatchList.objects.all()
+    serializer_class = WatchListSerializer
+    pagination_class = WatchListPagination
     permission_classes = [IsAdminOrReadOnly]
+    throttle_classes = [UserRateThrottle, AnonRateThrottle]
 
-    def get(self, request):
-        movies = WatchList.objects.all()
-        serializer = WatchListSerializer(movies, many=True)
-        return Response(serializer.data)
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['avg_rating']  
+
+    def perform_create(self, serializer):
+        serializer.save()
         
-
-    def post(self, request):
-        serializer = WatchListSerializer(data= request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
+    def throttled(self, request, wait):
+        if not request.user.is_authenticated:
+            msg = 'Create a free account to continue.'
         else:
-            return Response(serializer.errors)
+            msg = 'You sent too many requests, please continue tomorrow.'
+        raise Throttled(detail=msg)    
         
     
 class WatchListDetailAV(APIView):
     permission_classes = [IsAdminOrReadOnly]
+    throttle_classes = [UserRateThrottle]
 
     def get(self, request, pk):
         try:
@@ -95,7 +134,7 @@ class WatchListDetailAV(APIView):
     
     def put(self, request, pk):
         movie = WatchList.objects.get(pk=pk)
-        serializer = WatchListSerializer(movie, data= request.data)
+        serializer = WatchListSerializer(movie, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)

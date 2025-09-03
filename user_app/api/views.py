@@ -25,7 +25,7 @@ def logout_view(request):
 def registration_view(request):
 
     if request.method == 'POST':
-        serializer = RegistrationSerializer(data= request.data)
+        serializer = RegistrationSerializer(data=request.data)
 
         data = {}
 

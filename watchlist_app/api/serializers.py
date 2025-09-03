@@ -8,13 +8,25 @@ class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         exclude = ('watchlist',)
+        
 
-class WatchListSerializer(serializers.ModelSerializer):
-    reviews = ReviewSerializer(many=True, read_only=True)
+class WatchListSerializer(serializers.ModelSerializer):    
+     # Accept ID on input, but don't show it in responses
+    platform = serializers.PrimaryKeyRelatedField(
+        queryset=StreamPlatform.objects.all(),
+        write_only=True 
+    )
+    # Show human-readable name in responses
+    platform_name = serializers.CharField(source='platform.name', read_only=True)
 
     class Meta:
         model = WatchList
-        fields = '__all__'
+        fields = [
+            "id", "title", "storyline",
+            "platform",        # id (writable)
+            "platform_name",   # name (read-only)
+            "active", "avg_rating", "number_rating", "created",
+        ]
 
 
 class StreamPlatformSerializer(serializers.ModelSerializer):
@@ -23,8 +35,4 @@ class StreamPlatformSerializer(serializers.ModelSerializer):
     class Meta:
         model = StreamPlatform
         fields = '__all__'
-        extra_kwargs = {
-            'url': {'view_name': 'stream-platform-detail'}
-        }        
 
-    
